@@ -1,0 +1,24 @@
+kafka:
+  bootstrap:
+    servers: "localhost:9092"
+  topic:
+    metrics: "metrics"
+    control: "metrics-control"
+  producer:
+    acks: "all"
+    retries: 3
+  client:
+    id: "metrics-collector"
+  control:
+    group:
+      id: "metrics-collector-control-group"
+
+collector:
+  interval:
+    seconds: 10
+
+app:
+  hostname: ""
+  tags:
+    env: "prod"
+    role: "web"
