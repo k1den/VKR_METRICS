@@ -12,10 +12,6 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Listens to the control topic for JSON messages like {"interval":15}
- * and updates the collector's interval. Validates 5..60 sec.
- */
 public class ControlConsumer {
     private final KafkaConsumer<String, String> consumer;
     private final MetricsCollectorService collector;
@@ -26,7 +22,6 @@ public class ControlConsumer {
         this.collector = collector;
         this.topic = cfg.controlTopic;
         Properties p = cfg.kafkaConsumerProps;
-        // add client id
         p.put("client.id", cfg.clientId + "-control");
         this.consumer = new KafkaConsumer<>(p);
     }
@@ -44,7 +39,6 @@ public class ControlConsumer {
             ConsumerRecords<String, String> recs = consumer.poll(Duration.ofSeconds(1));
             recs.forEach(r -> {
                 try {
-                    // simple parsing to Map
                     Map map = JsonUtils.fromJson(r.value(), Map.class);
                     if (map.containsKey("interval")) {
                         int newInterval = Integer.parseInt(map.get("interval").toString());

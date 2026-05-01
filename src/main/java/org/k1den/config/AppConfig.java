@@ -4,12 +4,9 @@ import org.yaml.snakeyaml.Yaml;
 
 import java.io.InputStream;
 import java.net.InetAddress;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.Properties;
 
-@SuppressWarnings("unchecked")
 public class AppConfig {
 
     public final String kafkaBootstrap;
@@ -20,6 +17,8 @@ public class AppConfig {
     public final String controlGroupId;
     public final Map<String, String> tags;
     public final String hostname;
+    public final String deviceId;
+    public final String deviceName;
 
     public final Properties kafkaProducerProps = new Properties();
     public final Properties kafkaConsumerProps = new Properties();
@@ -48,6 +47,18 @@ public class AppConfig {
 
         // ----- App -----
         Map<String, Object> app = (Map<String, Object>) yamlRoot.get("app");
+        Map<String, Object> device = (Map<String, Object>) app.getOrDefault("device", Collections.emptyMap());
+
+        String devId = (String) device.getOrDefault("id", "");
+        if (devId == null || devId.isBlank()) {
+            devId = generateDeviceId();
+        } else {
+            devId = resolveEnvironmentVariable(devId);
+        }
+        deviceId = devId;
+
+        String devName = (String) device.getOrDefault("name", "unknown-device");
+        deviceName = resolveEnvironmentVariable(devName);
 
         String hn = (String) app.getOrDefault("hostname", "");
         if (hn == null || hn.isBlank()) {
@@ -76,6 +87,63 @@ public class AppConfig {
         kafkaConsumerProps.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
         kafkaConsumerProps.put("group.id", controlGroupId);
         kafkaConsumerProps.put("auto.offset.reset", "latest");
+
+        System.out.println("=== DEBUG: Device ID Generation ===");
+        System.out.println("Resolved device_id: " + deviceId);
+        System.out.println("Resolved device_name: " + deviceName);
+        System.out.println("Hostname: " + hostname);
+        System.out.println("================================");
+    }
+
+    private String generateDeviceId() {
+        try {
+            String host = InetAddress.getLocalHost().getHostName();
+            String mac = "";
+            try {
+                java.net.NetworkInterface network = java.net.NetworkInterface.getNetworkInterfaces().nextElement();
+                byte[] macBytes = network.getHardwareAddress();
+                if (macBytes != null) {
+                    StringBuilder sb = new StringBuilder();
+                    for (byte b : macBytes) {
+                        sb.append(String.format("%02X", b));
+                    }
+                    mac = sb.toString();
+                }
+            } catch (Exception e) {
+                mac = "unknown-mac";
+            }
+            return "device-" + Math.abs(host.hashCode()) + "-" + Math.abs(mac.hashCode());
+        } catch (Exception e) {
+            return "device-" + System.currentTimeMillis();
+        }
+    }
+
+    private String resolveEnvironmentVariable(String value) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+
+        if (value.startsWith("${") && value.endsWith("}")) {
+            String inner = value.substring(2, value.length() - 1);
+            String[] parts = inner.split(":", 2);
+
+            String varName = parts[0].trim();
+            String defaultValue = parts.length > 1 ? parts[1].trim() : "";
+
+            String envValue = System.getenv(varName);
+            if (envValue != null && !envValue.isEmpty()) {
+                return envValue;
+            }
+
+            String propValue = System.getProperty(varName);
+            if (propValue != null && !propValue.isEmpty()) {
+                return propValue;
+            }
+
+            return defaultValue;
+        }
+
+        return value;
     }
 
     private Map<String, String> toStringMap(Map<String, Object> src) {
@@ -99,5 +167,3 @@ public class AppConfig {
         }
     }
 }
-
-

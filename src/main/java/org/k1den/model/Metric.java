@@ -4,10 +4,11 @@ import java.util.List;
 import java.util.Map;
 
 public class Metric {
+    public String deviceId;
+    public String deviceName;
     public String hostname;
-    public long timestamp; // epoch ms
-    public double cpuLoad; // 0..100
-    public double systemLoadAverage;
+    public long timestamp;
+    public double cpuLoad;
     public double memoryUsedPercent;
     public long memoryTotal;
     public long memoryAvailable;
@@ -15,10 +16,8 @@ public class Metric {
     public long networkRxBytes;
     public long networkTxBytes;
     public int processCount;
-    public double cpuTemperature; // новое поле
+    public double cpuTemperature;
     public Map<String,String> tags;
 
     public Metric() {}
 }
-
-

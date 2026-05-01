@@ -21,9 +21,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Собирает метрики периодически и отправляет в Kafka. Интервал можно менять динамически.
- */
 public class MetricsCollectorService {
     private final AppConfig cfg;
     private final KafkaProducerService producer;
@@ -34,16 +31,27 @@ public class MetricsCollectorService {
     private volatile int intervalSeconds;
     private ScheduledFuture<?> scheduledTask;
 
-    // network counters snapshot
     private volatile long lastRx = 0;
     private volatile long lastTx = 0;
+    private volatile long lastNetworkTime = 0;
 
     private long[] prevCpuTicks = null;
+
+    private final TemperatureStrategy temperatureStrategy;
 
     public MetricsCollectorService(AppConfig cfg, KafkaProducerService producer) {
         this.cfg = cfg;
         this.producer = producer;
         this.intervalSeconds = Math.max(5, Math.min(60, cfg.initialIntervalSeconds));
+
+        String osName = System.getProperty("os.name").toLowerCase();
+        if (osName.contains("win")) {
+            this.temperatureStrategy = new WindowsTemperatureStrategy();
+            System.out.println("Initialized Windows Temperature Strategy (OHM)");
+        } else {
+            this.temperatureStrategy = new LinuxTemperatureStrategy();
+            System.out.println("Initialized Linux Temperature Strategy (sysfs)");
+        }
     }
 
     public synchronized void start() {
@@ -57,7 +65,6 @@ public class MetricsCollectorService {
             Metric m = collect();
             String json = JsonUtils.toJson(m);
             producer.send(m.hostname + "-" + m.timestamp, json);
-            // debug
             System.out.println("Sent metric: " + m.hostname + " ts=" + m.timestamp);
         } catch (Exception e) {
             System.err.println("Failed to collect/send metrics: " + e.getMessage());
@@ -66,6 +73,8 @@ public class MetricsCollectorService {
 
     private Metric collect() {
         Metric m = new Metric();
+        m.deviceId = cfg.deviceId;
+        m.deviceName = cfg.deviceName;
         m.hostname = cfg.hostname;
         m.timestamp = System.currentTimeMillis();
 
@@ -74,25 +83,21 @@ public class MetricsCollectorService {
         long[] ticks = cpu.getSystemCpuLoadTicks();
         if (prevCpuTicks == null) {
             prevCpuTicks = ticks;
-            Util.sleep(100); // первый замер
+            Util.sleep(100);
             ticks = cpu.getSystemCpuLoadTicks();
         }
         double cpuLoad = cpu.getSystemCpuLoadBetweenTicks(prevCpuTicks) * 100.0;
         prevCpuTicks = ticks;
-        if (Double.isNaN(cpuLoad) || cpuLoad < 0) cpuLoad = 0.0;
-        m.cpuLoad = Math.round(cpuLoad * 100.0) / 100.0;
+        m.cpuLoad = (!Double.isNaN(cpuLoad) && cpuLoad >= 0) ? Math.round(cpuLoad * 100.0) / 100.0 : 0.0;
 
-        // ----- CPU Temperature -----
-        double temp = hal.getSensors().getCpuTemperature();
-        if (Double.isNaN(temp) || temp <= 0.0) {
-            // Эмуляция на Windows или если датчик недоступен
-            temp = 45.0 + Math.random() * 15.0; // диапазон 45..60°C
+        // ----- CPU Temperature (РЕАЛЬНАЯ ЧЕРЕЗ OHM) -----
+        double temp = temperatureStrategy.getCpuTemperature();
+
+        if (temp <= 0.0) {
+            m.cpuTemperature = Double.NaN;
+        } else {
+            m.cpuTemperature = Math.round(temp * 10.0) / 10.0;
         }
-        m.cpuTemperature = Math.round(temp * 100.0) / 100.0;
-
-        // ----- System Load Average -----
-        double[] load = cpu.getSystemLoadAverage(3);
-        m.systemLoadAverage = load.length > 0 ? load[0] : 0.0;
 
         // ----- Memory -----
         GlobalMemory mem = hal.getMemory();
@@ -112,49 +117,51 @@ public class MetricsCollectorService {
         }
         m.disks = disks;
 
-        // ----- Network -----
-        long rx = 0, tx = 0;
+        // ----- Network (Байт/сек) -----
+        long currentRx = 0, currentTx = 0;
         try {
-            var nets = hal.getNetworkIFs();
-            for (var n : nets) {
-                rx += n.getBytesRecv();
-                tx += n.getBytesSent();
+            for (var n : hal.getNetworkIFs()) {
+                currentRx += n.getBytesRecv();
+                currentTx += n.getBytesSent();
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable ignored) {}
+
+        long currentTime = System.currentTimeMillis();
+        if (lastNetworkTime == 0) {
+            lastRx = currentRx;
+            lastTx = currentTx;
+            lastNetworkTime = currentTime;
+            m.networkRxBytes = 0;
+            m.networkTxBytes = 0;
+        } else {
+            long timeDelta = currentTime - lastNetworkTime;
+            if (timeDelta > 0) {
+                m.networkRxBytes = Math.max(0, (currentRx - lastRx) * 1000 / timeDelta);
+                m.networkTxBytes = Math.max(0, (currentTx - lastTx) * 1000 / timeDelta);
+            }
+            lastRx = currentRx;
+            lastTx = currentTx;
+            lastNetworkTime = currentTime;
         }
-        m.networkRxBytes = rx;
-        m.networkTxBytes = tx;
 
         // ----- Process Count -----
         m.processCount = os.getProcessCount();
-
-        // ----- Tags -----
         m.tags = cfg.tags;
 
         return m;
     }
 
-
-    /**
-     * Update interval dynamically. Valid 5..60
-     */
     public synchronized void updateInterval(int newIntervalSeconds) {
         if (newIntervalSeconds < 5) newIntervalSeconds = 5;
         if (newIntervalSeconds > 60) newIntervalSeconds = 60;
         if (newIntervalSeconds == this.intervalSeconds) return;
         this.intervalSeconds = newIntervalSeconds;
-        if (scheduledTask != null) {
-            scheduledTask.cancel(false);
-        }
+        if (scheduledTask != null) scheduledTask.cancel(false);
         scheduledTask = scheduler.scheduleAtFixedRate(this::collectAndSend, 0, intervalSeconds, TimeUnit.SECONDS);
         System.out.println("Collector interval updated to " + intervalSeconds + " seconds");
     }
 
     public void shutdown() {
-        try {
-            scheduler.shutdownNow();
-        } catch (Exception ignored) {
-        }
+        try { scheduler.shutdownNow(); } catch (Exception ignored) {}
     }
 }
-

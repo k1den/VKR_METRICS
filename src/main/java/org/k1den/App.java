@@ -7,19 +7,16 @@ import org.k1den.service.MetricsCollectorService;
 
 public class App {
     public static void main(String[] args) {
-        AppConfig config = AppConfig.load(); // из application.properties
+        AppConfig config = AppConfig.load();
 
         KafkaProducerService producer = new KafkaProducerService(config);
         MetricsCollectorService collector = new MetricsCollectorService(config, producer);
 
-        // стартуем consumer для управления интервалом
         ControlConsumer controlConsumer = new ControlConsumer(config, collector);
         controlConsumer.start();
 
-        // старт основного цикла сбора
         collector.start();
 
-        // shutdown hook
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             controlConsumer.shutdown();
             collector.shutdown();

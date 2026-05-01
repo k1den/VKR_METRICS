@@ -1,24 +1,27 @@
 kafka:
   bootstrap:
-    servers: "localhost:9092"
+    servers: localhost:9092
   topic:
-    metrics: "metrics"
-    control: "metrics-control"
+    metrics: metrics
+    control: metrics-control
   producer:
-    acks: "all"
+    acks: all
     retries: 3
   client:
-    id: "metrics-collector"
+    id: metrics-collector
   control:
     group:
-      id: "metrics-collector-control-group"
+      id: metrics-collector-control-group
 
 collector:
   interval:
     seconds: 10
 
 app:
-  hostname: ""
+  hostname:
+  device:
+    id: ${DEVICE_ID:device-002}  # Добавлен идентификатор устройства
+    name: ${DEVICE_NAME:server-2} # Имя устройства для удобства
   tags:
-    env: "prod"
-    role: "web"
+    env: prod
+    role: web
