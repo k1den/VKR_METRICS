@@ -20,8 +20,8 @@ collector:
 app:
   hostname:
   device:
-    id: ${DEVICE_ID:device-002}  # Добавлен идентификатор устройства
-    name: ${DEVICE_NAME:server-2} # Имя устройства для удобства
+    id: ${DEVICE_ID:device-001}
+    name: ${DEVICE_NAME:server-1}
   tags:
     env: prod
     role: web

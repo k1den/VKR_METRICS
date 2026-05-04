@@ -4,6 +4,7 @@ import org.yaml.snakeyaml.Yaml;
 
 import java.io.InputStream;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.util.*;
 import java.util.Properties;
 
@@ -57,8 +58,12 @@ public class AppConfig {
         }
         deviceId = devId;
 
-        String devName = (String) device.getOrDefault("name", "unknown-device");
-        deviceName = resolveEnvironmentVariable(devName);
+        String devName = (String) device.getOrDefault("name", "");
+        devName = resolveEnvironmentVariable(devName);
+        if (devName == null || devName.isBlank()) {
+            devName = generateDeviceName();
+        }
+        deviceName = devName;
 
         String hn = (String) app.getOrDefault("hostname", "");
         if (hn == null || hn.isBlank()) {
@@ -98,23 +103,37 @@ public class AppConfig {
     private String generateDeviceId() {
         try {
             String host = InetAddress.getLocalHost().getHostName();
-            String mac = "";
-            try {
-                java.net.NetworkInterface network = java.net.NetworkInterface.getNetworkInterfaces().nextElement();
-                byte[] macBytes = network.getHardwareAddress();
-                if (macBytes != null) {
-                    StringBuilder sb = new StringBuilder();
-                    for (byte b : macBytes) {
-                        sb.append(String.format("%02X", b));
-                    }
-                    mac = sb.toString();
-                }
-            } catch (Exception e) {
-                mac = "unknown-mac";
-            }
-            return "device-" + Math.abs(host.hashCode()) + "-" + Math.abs(mac.hashCode());
+            String mac = getMacAddress();
+            String base = host + "-" + mac;
+            return "device-" + String.format("%08x", base.hashCode() & 0xFFFFFFFFL);
         } catch (Exception e) {
-            return "device-" + System.currentTimeMillis();
+            // крайний fallback — хотя бы стабильный хэш от системных свойств
+            String base = System.getProperty("user.name", "unknown") + System.getProperty("os.name", "");
+            return "device-" + String.format("%08x", base.hashCode() & 0xFFFFFFFFL);
+        }
+    }
+
+    private String getMacAddress() {
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface ni = interfaces.nextElement();
+                byte[] mac = ni.getHardwareAddress();
+                if (mac != null && mac.length > 0) {
+                    StringBuilder sb = new StringBuilder();
+                    for (byte b : mac) sb.append(String.format("%02X", b));
+                    return sb.toString();
+                }
+            }
+        } catch (Exception ignored) {}
+        return "no-mac";
+    }
+
+    private String generateDeviceName() {
+        try {
+            return InetAddress.getLocalHost().getHostName();
+        } catch (Exception e) {
+            return "server-" + System.getProperty("user.name", "unknown");
         }
     }
 
