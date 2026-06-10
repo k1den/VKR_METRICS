@@ -90,6 +90,11 @@ public class MetricsCollectorService {
         prevCpuTicks = ticks;
         m.cpuLoad = (!Double.isNaN(cpuLoad) && cpuLoad >= 0) ? Math.round(cpuLoad * 100.0) / 100.0 : 0.0;
 
+        double[] loadAverage = cpu.getSystemLoadAverage(1);
+        m.systemLoadAverage = (loadAverage.length > 0 && loadAverage[0] >= 0)
+                ? Math.round(loadAverage[0] * 100.0) / 100.0
+                : 0.0;
+
         // ----- CPU Temperature (РЕАЛЬНАЯ ЧЕРЕЗ OHM) -----
         double temp = temperatureStrategy.getCpuTemperature();
 

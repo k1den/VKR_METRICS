@@ -18,6 +18,7 @@ public class Metric {
     public int processCount;
     public double cpuTemperature;
     public Map<String,String> tags;
+    public double systemLoadAverage;
 
     public Metric() {}
 }
